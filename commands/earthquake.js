@@ -18,7 +18,7 @@ function getIntensity(scale) {
 }
 
 async function captureMapScreenshot(mapUrl) {
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
   const page = await browser.newPage();
 
   // 地図のURLにアクセス

@@ -1,4 +1,7 @@
+const { MessageEmbed } = require('discord.js');
 const fetch = require('node-fetch');
+const puppeteer = require('puppeteer');
+const fs = require('fs');
 
 // 震度を取得する関数
 function getIntensity(scale) {
@@ -14,8 +17,33 @@ function getIntensity(scale) {
   return '不明';
 }
 
+async function captureMapScreenshot(mapUrl) {
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+
+  // 地図のURLにアクセス
+  await page.goto(mapUrl);
+
+  // 地図が読み込まれるまで待機
+  await page.waitForSelector('#map');
+
+  // 地図のスクリーンショットを取得
+  const screenshotBuffer = await page.screenshot();
+
+  // スクリーンショットをファイルに保存
+  fs.writeFileSync('./screenshot.png', screenshotBuffer);
+
+  // ブラウザを閉じる
+  await browser.close();
+
+  return './screenshot.png';  // 保存先のパスを返す
+}
+
 async function getEarthquakeInfo(interaction) {
   try {
+    // すぐに応答を返す
+    await interaction.deferReply({ ephemeral: true });
+
     const response = await fetch('https://api.p2pquake.net/v2/history?codes=551&limit=1');
     const data = await response.json();
 
@@ -32,13 +60,25 @@ async function getEarthquakeInfo(interaction) {
     // 地図のURLを生成
     const mapUrl = `https://www.openstreetmap.org/?mlat=${earthquake.hypocenter?.latitude}&mlon=${earthquake.hypocenter?.longitude}#map=10/${earthquake.hypocenter?.latitude}/${earthquake.hypocenter?.longitude}`;
 
-    // チャンネルに地震情報と地図を送信する
-    await interaction.reply(
-      `最新の地震情報\n\nマグニチュード: ${magnitude}\n震度: ${intensity}\n震源地: ${location}\n深さ: ${depth} km\n\n[震央の地図を表示する](${mapUrl})`
-    );
+    // 地図のスクリーンショットを取得し、ファイルに保存
+    const screenshotPath = await captureMapScreenshot(mapUrl);
+
+    // Embedを作成
+    const embed = new MessageEmbed()
+      .setTitle('最新の地震情報')
+      .addField('マグニチュード', `${magnitude}`, true)
+      .addField('震度', `${intensity}`, true)
+      .addField('震源地', `${location}`, true)
+      .addField('深さ', `${depth} km`, true)
+      .setDescription(`[震源地の地図を表示する](${mapUrl})`)
+      .setColor('#ff0000')
+      .setImage(`attachment://${screenshotPath}`);  // 保存したスクリーンショットを指定
+
+    // チャンネルにEmbedを送信
+    await interaction.editReply({ embeds: [embed], files: [screenshotPath] });
   } catch (error) {
     console.error(error);
-    await interaction.reply('地震情報を取得できませんでした。');
+    await interaction.followUp('地震情報を取得できませんでした。');
   }
 }
 
@@ -47,11 +87,11 @@ module.exports = {
     name: 'earthquake',
     description: '最新の地震情報を表示します。',
   },
-  execute(interaction) {
+  async execute(interaction) {
     if (!interaction.isCommand()) return;
 
     if (interaction.commandName === 'earthquake') {
-      getEarthquakeInfo(interaction);
+      await getEarthquakeInfo(interaction);
     }
   },
 };
